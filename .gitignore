@@ -1,0 +1,15 @@
+# Generated report logs
+health_report.txt
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environment
+venv/
+env/
+.env
+
+# VS Code
+.vscode/
