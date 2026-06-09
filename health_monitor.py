@@ -1,175 +1,140 @@
-"""
-System Health Monitor
-=====================
-Author: [Your Name]
-Description: Monitors CPU, memory, disk, and network usage.
-             Logs results to a text report and alerts on high usage.
-"""
-
 import psutil
 import datetime
-import os
-import platform
 import socket
+import platform
 
 
-# ─── CONFIG ────────────────────────────────────────────────────────────────────
-CPU_THRESHOLD    = 85   # % — alert if CPU usage exceeds this
-MEMORY_THRESHOLD = 80   # % — alert if RAM usage exceeds this
-DISK_THRESHOLD   = 90   # % — alert if disk usage exceeds this
-REPORT_FILE      = "health_report.txt"
-# ───────────────────────────────────────────────────────────────────────────────
+REPORT_FILE = "health_report.txt"
+
+CPU_ALERT    = 85
+MEMORY_ALERT = 80
+DISK_ALERT   = 90
 
 
-def get_system_info():
-    """Return basic info about the machine."""
+def system_info():
     return {
-        "hostname": socket.gethostname(),
-        "os":       platform.system() + " " + platform.version(),
-        "cpu_cores": psutil.cpu_count(logical=True),
-        "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "host": socket.gethostname(),
+        "os": platform.system() + " " + platform.version(),
+        "cores": psutil.cpu_count(logical=True),
+        "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
 
 
-def get_cpu_usage():
-    """Return CPU usage percentage (sampled over 1 second)."""
+def cpu_usage():
     return psutil.cpu_percent(interval=1)
 
 
-def get_memory_usage():
-    """Return memory stats as a dict."""
-    mem = psutil.virtual_memory()
+def memory_usage():
+    m = psutil.virtual_memory()
     return {
-        "total_gb":  round(mem.total / (1024 ** 3), 2),
-        "used_gb":   round(mem.used  / (1024 ** 3), 2),
-        "free_gb":   round(mem.free  / (1024 ** 3), 2),
-        "percent":   mem.percent,
+        "total": round(m.total / (1024 ** 3), 2),
+        "used":  round(m.used  / (1024 ** 3), 2),
+        "free":  round(m.free  / (1024 ** 3), 2),
+        "pct":   m.percent
     }
 
 
-def get_disk_usage(path="C:\\"):
-    """Return disk usage stats for the given path."""
-    disk = psutil.disk_usage(path)
+def disk_usage(path="C:\\"):
+    d = psutil.disk_usage(path)
     return {
-        "path":      path,
-        "total_gb":  round(disk.total / (1024 ** 3), 2),
-        "used_gb":   round(disk.used  / (1024 ** 3), 2),
-        "free_gb":   round(disk.free  / (1024 ** 3), 2),
-        "percent":   disk.percent,
+        "path":  path,
+        "total": round(d.total / (1024 ** 3), 2),
+        "used":  round(d.used  / (1024 ** 3), 2),
+        "free":  round(d.free  / (1024 ** 3), 2),
+        "pct":   d.percent
     }
 
 
-def get_top_processes(n=5):
-    """Return the top N processes by CPU usage."""
-    processes = []
-    for proc in psutil.process_iter(["pid", "name", "cpu_percent", "memory_percent"]):
+def network_stats():
+    n = psutil.net_io_counters()
+    return {
+        "sent": round(n.bytes_sent / (1024 ** 2), 2),
+        "recv": round(n.bytes_recv / (1024 ** 2), 2)
+    }
+
+
+def top_processes(n=5):
+    procs = []
+    for p in psutil.process_iter(["pid", "name", "cpu_percent", "memory_percent"]):
         try:
-            processes.append(proc.info)
+            procs.append(p.info)
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             pass
-    # Sort by CPU usage descending
-    return sorted(processes, key=lambda p: p["cpu_percent"], reverse=True)[:n]
+    return sorted(procs, key=lambda x: x["cpu_percent"], reverse=True)[:n]
 
 
-def get_network_stats():
-    """Return bytes sent and received since boot."""
-    net = psutil.net_io_counters()
-    return {
-        "bytes_sent_mb":     round(net.bytes_sent     / (1024 ** 2), 2),
-        "bytes_received_mb": round(net.bytes_recv / (1024 ** 2), 2),
-    }
-
-
-def check_alerts(cpu, memory, disk):
-    """Return a list of alert messages for values above thresholds."""
+def check_alerts(cpu, mem, disk):
     alerts = []
-    if cpu >= CPU_THRESHOLD:
-        alerts.append(f"⚠️  HIGH CPU USAGE: {cpu}% (threshold: {CPU_THRESHOLD}%)")
-    if memory["percent"] >= MEMORY_THRESHOLD:
-        alerts.append(f"⚠️  HIGH MEMORY USAGE: {memory['percent']}% (threshold: {MEMORY_THRESHOLD}%)")
-    if disk["percent"] >= DISK_THRESHOLD:
-        alerts.append(f"⚠️  HIGH DISK USAGE: {disk['percent']}% (threshold: {DISK_THRESHOLD}%)")
+    if cpu >= CPU_ALERT:
+        alerts.append(f"High CPU usage: {cpu}%")
+    if mem["pct"] >= MEMORY_ALERT:
+        alerts.append(f"High memory usage: {mem['pct']}%")
+    if disk["pct"] >= DISK_ALERT:
+        alerts.append(f"High disk usage: {disk['pct']}%")
     return alerts
 
 
-def build_report(info, cpu, memory, disk, network, top_procs, alerts):
-    """Assemble all stats into a formatted report string."""
-    sep = "=" * 60
-
+def build_report(info, cpu, mem, disk, net, procs, alerts):
     lines = [
-        sep,
-        "         SYSTEM HEALTH REPORT",
-        sep,
-        f"  Host      : {info['hostname']}",
-        f"  OS        : {info['os']}",
-        f"  CPU Cores : {info['cpu_cores']}",
-        f"  Timestamp : {info['timestamp']}",
-        "",
-        "── CPU ──────────────────────────────────────────────────",
-        f"  Usage     : {cpu}%",
-        "",
-        "── MEMORY ───────────────────────────────────────────────",
-        f"  Total     : {memory['total_gb']} GB",
-        f"  Used      : {memory['used_gb']} GB  ({memory['percent']}%)",
-        f"  Free      : {memory['free_gb']} GB",
-        "",
-        "── DISK ─────────────────────────────────────────────────",
-        f"  Path      : {disk['path']}",
-        f"  Total     : {disk['total_gb']} GB",
-        f"  Used      : {disk['used_gb']} GB  ({disk['percent']}%)",
-        f"  Free      : {disk['free_gb']} GB",
-        "",
-        "── NETWORK (since boot) ─────────────────────────────────",
-        f"  Sent      : {network['bytes_sent_mb']} MB",
-        f"  Received  : {network['bytes_received_mb']} MB",
-        "",
-        "── TOP 5 PROCESSES BY CPU ───────────────────────────────",
+        f"System Health Report",
+        f"--------------------",
+        f"Host      : {info['host']}",
+        f"OS        : {info['os']}",
+        f"CPU Cores : {info['cores']}",
+        f"Time      : {info['time']}",
+        f"",
+        f"CPU",
+        f"  Usage : {cpu}%",
+        f"",
+        f"Memory",
+        f"  Total : {mem['total']} GB",
+        f"  Used  : {mem['used']} GB ({mem['pct']}%)",
+        f"  Free  : {mem['free']} GB",
+        f"",
+        f"Disk ({disk['path']})",
+        f"  Total : {disk['total']} GB",
+        f"  Used  : {disk['used']} GB ({disk['pct']}%)",
+        f"  Free  : {disk['free']} GB",
+        f"",
+        f"Network (since boot)",
+        f"  Sent     : {net['sent']} MB",
+        f"  Received : {net['recv']} MB",
+        f"",
+        f"Top Processes by CPU",
     ]
 
-    for proc in top_procs:
+    for p in procs:
         lines.append(
-            f"  [{proc['pid']:>6}]  {proc['name']:<30} "
-            f"CPU: {proc['cpu_percent']:>5}%   MEM: {proc['memory_percent']:>5.1f}%"
+            f"  [{p['pid']:>6}]  {p['name']:<28}  cpu: {p['cpu_percent']}%  mem: {round(p['memory_percent'], 1)}%"
         )
 
     lines.append("")
     if alerts:
-        lines.append("── ALERTS ───────────────────────────────────────────────")
-        for alert in alerts:
-            lines.append(f"  {alert}")
+        lines.append("Alerts")
+        for a in alerts:
+            lines.append(f"  - {a}")
     else:
-        lines.append("── ALERTS ───────────────────────────────────────────────")
-        lines.append("  ✅  All systems within normal thresholds.")
+        lines.append("No alerts. All values within normal range.")
 
-    lines.append(sep)
+    lines.append("")
     return "\n".join(lines)
 
 
-def save_report(report_text):
-    """Append the report to the log file."""
-    with open(REPORT_FILE, "a", encoding="utf-8") as f:
-        f.write(report_text + "\n\n")
-    print(f"[+] Report saved to '{REPORT_FILE}'")
-
-
 def main():
-    print("[*] Running System Health Monitor...")
+    info   = system_info()
+    cpu    = cpu_usage()
+    mem    = memory_usage()
+    disk   = disk_usage()
+    net    = network_stats()
+    procs  = top_processes()
+    alerts = check_alerts(cpu, mem, disk)
 
-    info       = get_system_info()
-    cpu        = get_cpu_usage()
-    memory     = get_memory_usage()
-    disk       = get_disk_usage()
-    network    = get_network_stats()
-    top_procs  = get_top_processes()
-    alerts     = check_alerts(cpu, memory, disk)
-
-    report = build_report(info, cpu, memory, disk, network, top_procs, alerts)
-
-    # Print to terminal
+    report = build_report(info, cpu, mem, disk, net, procs, alerts)
     print(report)
 
-    # Save to file
-    save_report(report)
+    with open(REPORT_FILE, "a", encoding="utf-8") as f:
+        f.write(report + "\n")
+    print(f"Report saved to {REPORT_FILE}")
 
 
 if __name__ == "__main__":
